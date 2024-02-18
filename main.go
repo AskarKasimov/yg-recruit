@@ -7,10 +7,12 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
 	"github.com/Pramod-Devireddy/go-exprtk"
+	"github.com/google/uuid"
 )
 
 type WorkerAdding struct {
@@ -30,8 +32,45 @@ type ExpressionSolving struct {
 	Answer string `json:"answer"`
 }
 
-var NAME string = "33few"
+var GOROUTINES int64
+var NAME string = uuid.New().String()
 var ID int64
+var MULTIPLICATION int64
+var DIVISION int64
+var ADDITION int64
+var SUBTRACTION int64
+
+func init() {
+	goroutines, err := strconv.ParseInt(os.Getenv("GOROUTINES"), 10, 64)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	GOROUTINES = goroutines
+
+	multiplication, err := strconv.ParseInt(os.Getenv("MULTIPLICATION"), 10, 64)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	MULTIPLICATION = multiplication
+
+	division, err := strconv.ParseInt(os.Getenv("DIVISION"), 10, 64)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	DIVISION = division
+
+	addition, err := strconv.ParseInt(os.Getenv("ADDITION"), 10, 64)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	ADDITION = addition
+
+	subtraction, err := strconv.ParseInt(os.Getenv("SUBTRACTION"), 10, 64)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	SUBTRACTION = subtraction
+}
 
 func getId() (int64, error) {
 	workerAdding := WorkerAdding{Name: NAME}
@@ -94,6 +133,26 @@ func getExpressionToSolve(client *http.Client) (Expression, error) {
 	return expression, nil
 }
 
+func countTimeToSleep(expression string) time.Duration {
+	var totalTime time.Duration = 0
+	for _, char := range expression {
+		if char == []rune("*")[0] {
+			totalTime += time.Second * time.Duration(MULTIPLICATION)
+		}
+		if char == []rune("/")[0] {
+			totalTime += time.Second * time.Duration(DIVISION)
+		}
+		if char == []rune("+")[0] {
+			totalTime += time.Second * time.Duration(ADDITION)
+		}
+		if char == []rune("-")[0] {
+			totalTime += time.Second * time.Duration(SUBTRACTION)
+		}
+	}
+	log.Printf("Sleeping %f seconds", totalTime.Seconds())
+	return totalTime
+}
+
 func solveExpression(expression Expression) (string, error) {
 	exprtkObj := exprtk.NewExprtk()
 	defer exprtkObj.Delete()
@@ -103,6 +162,8 @@ func solveExpression(expression Expression) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	time.Sleep(countTimeToSleep(expression.Vanilla))
 
 	return fmt.Sprintf("%v", exprtkObj.GetEvaluatedValue()), nil
 }

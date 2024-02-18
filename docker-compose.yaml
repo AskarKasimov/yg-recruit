@@ -3,6 +3,13 @@ services:
     recruit1:
         build:
             context: ./
+        environment:
+            - NAME=ggwp123
+            - MULTIPLICATION=1
+            - DIVISION=1
+            - ADDITION=1
+            - SUBTRACTION=1
+            - GOROUTINES=5
         restart: always
         networks:
             - yg

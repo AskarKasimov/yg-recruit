@@ -73,10 +73,10 @@ func init() {
 
 	log.Printf("Name (uuid): %s", NAME)
 	log.Printf("Number of goroutines: %d", GOROUTINES)
-	log.Printf("Time for multiplication: %d", MULTIPLICATION)
-	log.Printf("Time for division: %d", DIVISION)
-	log.Printf("Time for addition: %d", ADDITION)
-	log.Printf("Time for subtraction: %d", SUBTRACTION)
+	log.Printf("Time (seconds) for multiplication: %d", MULTIPLICATION)
+	log.Printf("Time (seconds) for division: %d", DIVISION)
+	log.Printf("Time (seconds) for addition: %d", ADDITION)
+	log.Printf("Time (seconds) for subtraction: %d", SUBTRACTION)
 }
 
 func getId() (int64, error) {

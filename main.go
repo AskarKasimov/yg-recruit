@@ -32,7 +32,7 @@ type ExpressionSolving struct {
 	Answer string `json:"answer"`
 }
 
-var GOROUTINES int64
+var GOROUTINES int
 var NAME string = uuid.New().String()
 var ID int64
 var MULTIPLICATION int64
@@ -41,7 +41,7 @@ var ADDITION int64
 var SUBTRACTION int64
 
 func init() {
-	goroutines, err := strconv.ParseInt(os.Getenv("GOROUTINES"), 10, 64)
+	goroutines, err := strconv.Atoi(os.Getenv("GOROUTINES"))
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -70,6 +70,13 @@ func init() {
 		log.Fatalln(err)
 	}
 	SUBTRACTION = subtraction
+
+	log.Printf("Name (uuid): %s", NAME)
+	log.Printf("Number of goroutines: %d", GOROUTINES)
+	log.Printf("Time for multiplication: %d", MULTIPLICATION)
+	log.Printf("Time for division: %d", DIVISION)
+	log.Printf("Time for addition: %d", ADDITION)
+	log.Printf("Time for subtraction: %d", SUBTRACTION)
 }
 
 func getId() (int64, error) {
@@ -216,7 +223,7 @@ func main() {
 	}
 	ID = id
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < GOROUTINES; i++ {
 		go func() {
 			for {
 				time.Sleep(time.Minute)

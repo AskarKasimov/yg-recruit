@@ -14,7 +14,7 @@ import (
 )
 
 type WorkerAdding struct {
-	Name string `json:"name" binding:"required"`
+	Name string `json:"name"`
 }
 
 type Expression struct {
@@ -26,11 +26,12 @@ type Expression struct {
 }
 
 type ExpressionSolving struct {
-	Id     int64  `json:"id" binding:"required"`
-	Answer string `json:"answer" binding:"required"`
+	Id     int64  `json:"id"`
+	Answer string `json:"answer"`
 }
 
 var NAME string = "33few"
+var ID int64
 
 func getId() (int64, error) {
 	workerAdding := WorkerAdding{Name: NAME}
@@ -64,96 +65,107 @@ func getId() (int64, error) {
 	return id, nil
 }
 
+func getExpressionToSolve(client *http.Client) (Expression, error) {
+	req, err := http.NewRequest("GET", "http://colonel:8080/api/v1/worker/want_to_calculate", nil)
+	if err != nil {
+		return Expression{}, err
+	}
+
+	req.Header.Set("Authorization", strconv.FormatInt(ID, 10))
+
+	res, err := client.Do(req)
+	if err != nil {
+		return Expression{}, err
+	}
+
+	body, err := io.ReadAll(res.Body)
+	defer res.Body.Close()
+	if err != nil {
+		return Expression{}, err
+	}
+
+	var expression Expression
+
+	err = json.Unmarshal(body, &expression)
+	if err != nil {
+		return Expression{}, err
+	}
+
+	return expression, nil
+}
+
+func solveExpression(expression Expression) (string, error) {
+	exprtkObj := exprtk.NewExprtk()
+	defer exprtkObj.Delete()
+	exprtkObj.SetExpression(expression.Vanilla)
+
+	err := exprtkObj.CompileExpression()
+	if err != nil {
+		return "", err
+	}
+
+	return fmt.Sprintf("%v", exprtkObj.GetEvaluatedValue()), nil
+}
+
+func sendAnswer(client *http.Client, bytesAnswer []byte) error {
+	solveReq, err := http.NewRequest("POST", "http://colonel:8080/api/v1/expression/solve", bytes.NewBuffer(bytesAnswer))
+	if err != nil {
+		return err
+	}
+	solveReq.Header.Set("Authorization", strconv.FormatInt(ID, 10))
+
+	solveResp, err := client.Do(solveReq)
+	if err != nil || solveResp.StatusCode != 200 {
+		return err
+	}
+
+	return nil
+}
+
+func process() error {
+	client := &http.Client{}
+	expression, err := getExpressionToSolve(client)
+	if err != nil {
+		return err
+	}
+
+	solve, err := solveExpression(expression)
+	if err != nil {
+		return err
+	}
+
+	answer := ExpressionSolving{Id: expression.Id, Answer: solve}
+	bytesAnswer, err := json.Marshal(answer)
+	if err != nil {
+		return err
+	}
+
+	err = sendAnswer(client, bytesAnswer)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func main() {
-	ID, err := getId()
+	id, err := getId()
 	if err != nil {
 		log.Fatal(err)
 	}
+	ID = id
 
-	go func() {
-		for {
-			client := &http.Client{}
-			req, err := http.NewRequest("GET", "http://colonel:8080/api/v1/worker/heartbeat", nil)
-			if err != nil {
-				log.Fatalln(err)
-			}
-
-			req.Header.Set("Authorization", strconv.FormatInt(ID, 10))
-
-			res, err := client.Do(req)
-			if err != nil {
-				log.Fatalln(err)
-			}
-			if res.StatusCode != 200 {
-				log.Fatalln("Incorrect heartbeat response")
-			}
-
-			log.Println("Successful heartbeat")
-
-			time.Sleep(time.Minute) // Пауза на 1 минуту
-		}
-	}()
 	for i := 0; i < 10; i++ {
 		go func() {
 			for {
 				time.Sleep(time.Minute)
-				client := &http.Client{}
-				req, err := http.NewRequest("GET", "http://colonel:8080/api/v1/worker/want_to_calculate", nil)
-				if err != nil {
-					log.Println(err)
-					continue
-				}
 
-				req.Header.Set("Authorization", strconv.FormatInt(ID, 10))
-
-				res, err := client.Do(req)
+				err := process()
 				if err != nil {
 					log.Println(err)
-					continue
+				} else {
+					log.Println("Success")
 				}
-				body, err := io.ReadAll(res.Body)
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				res.Body.Close()
-				var expression Expression
-				err = json.Unmarshal(body, &expression)
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				exprtkObj := exprtk.NewExprtk()
-				exprtkObj.SetExpression(expression.Vanilla)
-				err = exprtkObj.CompileExpression()
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				answer := ExpressionSolving{Id: expression.Id, Answer: fmt.Sprintf("%v", exprtkObj.GetEvaluatedValue())}
-				exprtkObj.Delete()
-				bytesAnswer, err := json.Marshal(answer)
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				solveReq, err := http.NewRequest("POST", "http://colonel:8080/api/v1/expression/solve", bytes.NewBuffer(bytesAnswer))
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				solveReq.Header.Set("Authorization", strconv.FormatInt(ID, 10))
-
-				solveResp, err := client.Do(solveReq)
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				if solveResp.StatusCode != 200 {
-					log.Println(err)
-					continue
-				}
-				log.Println("Success")
 			}
 		}()
 	}

@@ -1,5 +1,5 @@
 module askarkasimov/yg-recruit
 
-go 1.21.6
+go 1.22
 
-require github.com/streadway/amqp v1.1.0 // indirect
+require github.com/Pramod-Devireddy/go-exprtk v1.1.0

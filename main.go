@@ -1,79 +1,162 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
-	"os"
+	"net/http"
+	"strconv"
+	"time"
 
-	"github.com/streadway/amqp"
+	"github.com/Pramod-Devireddy/go-exprtk"
 )
 
-func handleError(err error, msg string) {
-	if err != nil {
-		log.Fatalf("%s: %s", msg, err)
-	}
-
+type WorkerAdding struct {
+	Name string `json:"name" binding:"required"`
 }
 
-type AddTask struct {
-	Number1 int
-	Number2 int
+type Expression struct {
+	Id           int64  `json:"id"`
+	IncomingDate int64  `json:"incomingDate"`
+	Vanilla      string `json:"vanilla"`
+	Answer       string `json:"answer"`
+	Progress     string `json:"progress"`
+}
+
+type ExpressionSolving struct {
+	Id     int64  `json:"id" binding:"required"`
+	Answer string `json:"answer" binding:"required"`
+}
+
+var NAME string = "33few"
+
+func getId() (int64, error) {
+	workerAdding := WorkerAdding{Name: NAME}
+
+	client := &http.Client{}
+	body, err := json.Marshal(workerAdding)
+	if err != nil {
+		return 0, err
+	}
+
+	req, err := http.NewRequest("POST", "http://colonel:8080/api/v1/worker/register", bytes.NewBuffer(body))
+	if err != nil {
+		return 0, err
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+
+	ok, err := io.ReadAll(res.Body)
+	if err != nil {
+		return 0, err
+	}
+	res.Body.Close()
+
+	id, err := strconv.ParseInt(string(ok), 10, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	return id, nil
 }
 
 func main() {
-	conn, err := amqp.Dial("amqp://rmuser:rmpassword@rabbitmq/")
-	handleError(err, "Can't connect to AMQP")
-	defer conn.Close()
-
-	amqpChannel, err := conn.Channel()
-	handleError(err, "Can't create a amqpChannel")
-
-	defer amqpChannel.Close()
-
-	queue, err := amqpChannel.QueueDeclare("add", true, false, false, false, nil)
-	handleError(err, "Could not declare `add` queue")
-
-	err = amqpChannel.Qos(1, 0, false)
-	handleError(err, "Could not configure QoS")
-
-	messageChannel, err := amqpChannel.Consume(
-		queue.Name,
-		"",
-		false,
-		false,
-		false,
-		false,
-		nil,
-	)
-	handleError(err, "Could not register consumer")
-
-	stopChan := make(chan bool)
+	ID, err := getId()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	go func() {
-		log.Printf("Consumer ready, PID: %d", os.Getpid())
-		for d := range messageChannel {
-			log.Printf("Received a message: %s", d.Body)
-
-			addTask := &AddTask{}
-
-			err := json.Unmarshal(d.Body, addTask)
-
+		for {
+			client := &http.Client{}
+			req, err := http.NewRequest("GET", "http://colonel:8080/api/v1/worker/heartbeat", nil)
 			if err != nil {
-				log.Printf("Error decoding JSON: %s", err)
+				log.Fatalln(err)
 			}
 
-			log.Printf("Result of %d + %d is : %d", addTask.Number1, addTask.Number2, addTask.Number1+addTask.Number2)
+			req.Header.Set("Authorization", strconv.FormatInt(ID, 10))
 
-			if err := d.Ack(false); err != nil {
-				log.Printf("Error acknowledging message : %s", err)
-			} else {
-				log.Printf("Acknowledged message")
+			res, err := client.Do(req)
+			if err != nil {
+				log.Fatalln(err)
+			}
+			if res.StatusCode != 200 {
+				log.Fatalln("Incorrect heartbeat response")
 			}
 
+			log.Println("Successful heartbeat")
+
+			time.Sleep(time.Minute) // Пауза на 1 минуту
 		}
 	}()
+	for i := 0; i < 10; i++ {
+		go func() {
+			for {
+				time.Sleep(time.Minute)
+				client := &http.Client{}
+				req, err := http.NewRequest("GET", "http://colonel:8080/api/v1/worker/want_to_calculate", nil)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
 
-	// Остановка для завершения программы
-	<-stopChan
+				req.Header.Set("Authorization", strconv.FormatInt(ID, 10))
 
+				res, err := client.Do(req)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				body, err := io.ReadAll(res.Body)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				res.Body.Close()
+				var expression Expression
+				err = json.Unmarshal(body, &expression)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				exprtkObj := exprtk.NewExprtk()
+				exprtkObj.SetExpression(expression.Vanilla)
+				err = exprtkObj.CompileExpression()
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				answer := ExpressionSolving{Id: expression.Id, Answer: fmt.Sprintf("%v", exprtkObj.GetEvaluatedValue())}
+				exprtkObj.Delete()
+				bytesAnswer, err := json.Marshal(answer)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				solveReq, err := http.NewRequest("POST", "http://colonel:8080/api/v1/expression/solve", bytes.NewBuffer(bytesAnswer))
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				solveReq.Header.Set("Authorization", strconv.FormatInt(ID, 10))
+
+				solveResp, err := client.Do(solveReq)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				if solveResp.StatusCode != 200 {
+					log.Println(err)
+					continue
+				}
+				log.Println("Success")
+			}
+		}()
+	}
+	// Бесконечный цикл для предотвращения завершения программы
+	select {}
 }

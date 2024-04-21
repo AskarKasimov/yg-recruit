@@ -9,6 +9,8 @@ services:
             - ADDITION=1
             - SUBTRACTION=1
             - GOROUTINES=5
+        volumes:
+          - ./conf:/app/conf
         restart: always
         networks:
             - yg

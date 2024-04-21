@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -16,25 +17,30 @@ import (
 )
 
 type WorkerAdding struct {
-	Name string `json:"name"`
+	Name               string `json:"name"`
+	NumberOfGoroutines int    `json:"number_of_goroutines"`
 }
 
 type Expression struct {
-	Id           int64  `json:"id"`
-	IncomingDate int64  `json:"incomingDate"`
-	Vanilla      string `json:"vanilla"`
-	Answer       string `json:"answer"`
-	Progress     string `json:"progress"`
+	Id           uuid.UUID `json:"id"`
+	IncomingDate int64     `json:"incomingDate"`
+	Vanilla      string    `json:"vanilla"`
+	Answer       string    `json:"answer"`
+	Progress     string    `json:"progress"`
 }
 
 type ExpressionSolving struct {
-	Id     int64  `json:"id"`
-	Answer string `json:"answer"`
+	Id     uuid.UUID `json:"id"`
+	Answer string    `json:"answer"`
+}
+
+type Configuration struct {
+	Name string
 }
 
 var GOROUTINES int
-var NAME string = uuid.New().String()
-var ID int64
+var OWN_NAME string
+var ID_FROM_SERVER string
 var MULTIPLICATION int64
 var DIVISION int64
 var ADDITION int64
@@ -71,7 +77,27 @@ func init() {
 	}
 	SUBTRACTION = subtraction
 
-	log.Printf("Name (uuid): %s", NAME)
+	confFile, _ := os.Open("conf/conf.json")
+	defer confFile.Close()
+	decoder := json.NewDecoder(confFile)
+	configuration := Configuration{}
+	err = decoder.Decode(&configuration)
+	if err != nil {
+		fmt.Printf("%s: %s\n%s", "Error parsing ./conf/conf.json", err, "So creating the new one...")
+
+		newConfFile, _ := os.Create(`conf/conf.json`)
+		defer newConfFile.Close()
+
+		OWN_NAME = uuid.New().String()
+
+		newConf := Configuration{Name: OWN_NAME}
+		jsonnedBytes, _ := json.Marshal(newConf)
+		newConfFile.Write(jsonnedBytes)
+	} else {
+		OWN_NAME = configuration.Name
+	}
+
+	log.Printf("Name (uuid): %s", OWN_NAME)
 	log.Printf("Number of goroutines: %d", GOROUTINES)
 	log.Printf("Time (seconds) for multiplication: %d", MULTIPLICATION)
 	log.Printf("Time (seconds) for division: %d", DIVISION)
@@ -79,36 +105,40 @@ func init() {
 	log.Printf("Time (seconds) for subtraction: %d", SUBTRACTION)
 }
 
-func getId() (int64, error) {
-	workerAdding := WorkerAdding{Name: NAME}
+func IsValidUUID(u string) bool {
+	_, err := uuid.Parse(u)
+	return err == nil
+}
+
+func getId() (string, error) {
+	workerAdding := WorkerAdding{Name: OWN_NAME, NumberOfGoroutines: GOROUTINES}
 
 	client := &http.Client{}
 	body, err := json.Marshal(workerAdding)
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 
 	req, err := http.NewRequest("POST", "http://colonel:8080/api/v1/worker/register", bytes.NewBuffer(body))
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	res, err := client.Do(req)
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 
 	ok, err := io.ReadAll(res.Body)
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	res.Body.Close()
 
-	id, err := strconv.ParseInt(string(ok), 10, 64)
-	if err != nil {
-		return 0, err
+	if IsValidUUID(string(ok)) {
+		return string(ok), nil
 	}
 
-	return id, nil
+	return "", errors.New("Not valid id got from colonel")
 }
 
 func getExpressionToSolve(client *http.Client) (Expression, error) {
@@ -117,7 +147,7 @@ func getExpressionToSolve(client *http.Client) (Expression, error) {
 		return Expression{}, err
 	}
 
-	req.Header.Set("Authorization", strconv.FormatInt(ID, 10))
+	req.Header.Set("Authorization", ID_FROM_SERVER)
 
 	res, err := client.Do(req)
 	if err != nil {
@@ -180,7 +210,7 @@ func sendAnswer(client *http.Client, bytesAnswer []byte) error {
 	if err != nil {
 		return err
 	}
-	solveReq.Header.Set("Authorization", strconv.FormatInt(ID, 10))
+	solveReq.Header.Set("Authorization", ID_FROM_SERVER)
 
 	solveResp, err := client.Do(solveReq)
 	if err != nil || solveResp.StatusCode != 200 {
@@ -221,19 +251,19 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	ID = id
+	ID_FROM_SERVER = id
 
 	for i := 0; i < GOROUTINES; i++ {
 		go func() {
 			for {
-				time.Sleep(time.Minute)
-
 				err := process()
 				if err != nil {
 					log.Println(err)
 				} else {
 					log.Println("Success")
 				}
+
+				time.Sleep(time.Minute / 2)
 			}
 		}()
 	}

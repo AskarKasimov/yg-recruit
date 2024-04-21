@@ -8,7 +8,9 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"reflect"
 	"strconv"
 	"time"
 
@@ -45,6 +47,9 @@ var MULTIPLICATION int64
 var DIVISION int64
 var ADDITION int64
 var SUBTRACTION int64
+
+var mutex sync.Mutex
+var serverBroken bool = false
 
 func init() {
 	goroutines, err := strconv.Atoi(os.Getenv("GOROUTINES"))
@@ -150,6 +155,15 @@ func getExpressionToSolve(client *http.Client) (Expression, error) {
 	req.Header.Set("Authorization", ID_FROM_SERVER)
 
 	res, err := client.Do(req)
+	if err == *url.Error {
+		mutex.Lock()
+		serverBroken = true;
+		mutex.Unlock()
+	} else {
+		mutex.Lock()
+		serverBroken = false;
+		mutex.Unlock()
+	}
 	if err != nil {
 		return Expression{}, err
 	}
@@ -262,8 +276,12 @@ func main() {
 				} else {
 					log.Println("Success")
 				}
+				mutex.Lock()
+		if !serverBroken {
 
-				time.Sleep(time.Minute / 2)
+			time.Sleep(time.Minute / 2)
+		}
+		mutex.Unlock()
 			}
 		}()
 	}

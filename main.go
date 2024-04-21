@@ -8,10 +8,9 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
-	"reflect"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/Pramod-Devireddy/go-exprtk"
@@ -50,6 +49,7 @@ var SUBTRACTION int64
 
 var mutex sync.Mutex
 var serverBroken bool = false
+var channel = make(chan int)
 
 func init() {
 	goroutines, err := strconv.Atoi(os.Getenv("GOROUTINES"))
@@ -88,7 +88,7 @@ func init() {
 	configuration := Configuration{}
 	err = decoder.Decode(&configuration)
 	if err != nil {
-		fmt.Printf("%s: %s\n%s", "Error parsing ./conf/conf.json", err, "So creating the new one...")
+		log.Printf("%s: %s\n%s", "Error parsing ./conf/conf.json", err, "So creating the new one...")
 
 		newConfFile, _ := os.Create(`conf/conf.json`)
 		defer newConfFile.Close()
@@ -155,17 +155,15 @@ func getExpressionToSolve(client *http.Client) (Expression, error) {
 	req.Header.Set("Authorization", ID_FROM_SERVER)
 
 	res, err := client.Do(req)
-	if err == *url.Error {
+	if err != nil {
 		mutex.Lock()
-		serverBroken = true;
+		serverBroken = true
 		mutex.Unlock()
+		return Expression{}, nil
 	} else {
 		mutex.Lock()
-		serverBroken = false;
+		serverBroken = false
 		mutex.Unlock()
-	}
-	if err != nil {
-		return Expression{}, err
 	}
 
 	body, err := io.ReadAll(res.Body)
@@ -277,11 +275,13 @@ func main() {
 					log.Println("Success")
 				}
 				mutex.Lock()
-		if !serverBroken {
-
-			time.Sleep(time.Minute / 2)
-		}
-		mutex.Unlock()
+				if serverBroken {
+					mutex.Unlock()
+					time.Sleep(time.Second * 2)
+				} else {
+					mutex.Unlock()
+					time.Sleep(time.Minute / 2)
+				}
 			}
 		}()
 	}
